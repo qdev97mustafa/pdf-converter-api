@@ -1,15 +1,15 @@
 import os
 import uuid
+import subprocess
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTasks
-from pdf2docx import Converter
 
 app = FastAPI()
 
 @app.get("/")
 def home():
-    return {"status": "PDF to Word Converter API is Running on Render!"}
+    return {"status": "LibreOffice PDF to Word Converter is Running!"}
 
 def remove_file(path: str):
     try:
@@ -20,41 +20,47 @@ def remove_file(path: str):
 
 @app.post("/convert-pdf-to-docx")
 async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    # استخدام UUID فريد لمنع تداخل الملفات وضمان الامتداد الصحيح
     session_id = str(uuid.uuid4())
-    input_pdf_path = f"temp_{session_id}.pdf"
-    output_docx_path = f"temp_{session_id}.docx"
+    input_pdf_path = f"/tmp/{session_id}.pdf"
+    output_docx_path = f"/tmp/{session_id}.docx"
 
     try:
-        # قراءة المحتوى وحفظ ملف الـ PDF المؤقت
+        # حفظ ملف الـ PDF مؤقتاً
         contents = await file.read()
         with open(input_pdf_path, "wb") as f:
             f.write(contents)
 
-        # التحويل عبر pdf2docx
-        cv = Converter(input_pdf_path)
-        cv.convert(output_docx_path, start=0, end=None)
-        cv.close()
+        # استدعاء محرك LibreOffice للتحويل المباشر
+        cmd = [
+            "libreoffice",
+            "--headless",
+            "--convert-to",
+            "docx",
+            "--outdir",
+            "/tmp",
+            input_pdf_path
+        ]
+        
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
 
-        # التحقق من أن ملف docx تم إنشاؤه وله حجم حقيقي
+        # التحقق من نجاح العملية ووجود الملف الناتج
         if not os.path.exists(output_docx_path) or os.path.getsize(output_docx_path) == 0:
-            raise HTTPException(status_code=400, detail="Conversion resulted in an empty or corrupt file.")
+            raise HTTPException(status_code=500, detail=f"Conversion failed: {result.stderr.decode()}")
 
-        # حذف ملف الـ PDF الأصلي فوراً
+        # تنظيف الـ PDF الأصلي
         remove_file(input_pdf_path)
 
-        # جدولة حذف ملف الـ docx بعد إرساله للعميل حتى لا يمتلئ السيرفر
+        # جدولة حذف ملف الـ docx بعد تحميله
         background_tasks.add_task(remove_file, output_docx_path)
 
-        # إرجاع الملف بترميز ثنائي رسمي
+        original_name = os.path.splitext(file.filename or "document")[0]
         return FileResponse(
             path=output_docx_path,
-            filename=f"{os.path.splitext(file.filename or 'document')[0]}.docx",
+            filename=f"{original_name}.docx",
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
     except Exception as e:
         remove_file(input_pdf_path)
         remove_file(output_docx_path)
-        # إرجاع كود 500 حقيقي حتى يفهم تطبيق الهاتف أن هناك خطأ ولا يقوم بحفظ نصوص الخطأ
         raise HTTPException(status_code=500, detail=str(e))
