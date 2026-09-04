@@ -1,17 +1,17 @@
 import os
 import uuid
-import convertapi
+import requests
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTasks
 
-convertapi.api_credentials = 'dEg7qeUnUyULsmtLkleecNWpnnBmnVnu'
+SECRET = "dEg7qeUnUyULsmtLkleecNWpnnBmnVnu"
 
 app = FastAPI()
 
 @app.get("/")
 def home():
-    return {"status": "Cloud PDF to Word Converter is Running!"}
+    return {"status": "Direct HTTP ConvertAPI is running"}
 
 def remove_file(path: str):
     try:
@@ -23,25 +23,37 @@ def remove_file(path: str):
 @app.post("/convert-pdf-to-docx")
 async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
-    input_pdf_path = f"/tmp/{session_id}.pdf"
     output_docx_path = f"/tmp/{session_id}.docx"
 
     try:
-        contents = await file.read()
-        with open(input_pdf_path, "wb") as f:
-            f.write(contents)
+        file_bytes = await file.read()
 
-        result = convertapi.convert(
-            'docx',
-            {
-                'File': input_pdf_path
-            },
-            from_format='pdf'
+        # إرسال الملف مباشرة لـ ConvertAPI عبر REST API الرسمي
+        response = requests.post(
+            "https://v2.convertapi.com/convert/pdf/to/docx",
+            headers={"Authorization": f"Bearer {SECRET}"},
+            files={"File": (file.filename or "input.pdf", file_bytes, "application/pdf")},
+            params={"StoreFile": "false"}  # لإرجاع بايتات الملف فوراً في الرد
         )
 
-        result.file.save(output_docx_path)
+        data = response.json()
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=str(data))
 
-        remove_file(input_pdf_path)
+        # استخراج بيانات الملف وتنزيلها
+        file_info = data["Files"][0]
+        
+        if "FileData" in file_info:
+            import base64
+            with open(output_docx_path, "wb") as f:
+                f.write(base64.b64decode(file_info["FileData"]))
+        elif "Url" in file_info:
+            download_res = requests.get(file_info["Url"])
+            with open(output_docx_path, "wb") as f:
+                f.write(download_res.content)
+        else:
+            raise HTTPException(status_code=500, detail="No file data found in response")
+
         background_tasks.add_task(remove_file, output_docx_path)
 
         original_name = os.path.splitext(file.filename or "document")[0]
@@ -52,6 +64,5 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
         )
 
     except Exception as e:
-        remove_file(input_pdf_path)
         remove_file(output_docx_path)
         raise HTTPException(status_code=500, detail=str(e))
