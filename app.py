@@ -1,15 +1,18 @@
 import os
 import uuid
-import subprocess
+import convertapi
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTasks
+
+# المفتاح الخاص بك تم دمجه هنا مباشرة
+convertapi.api_credentials = 'dEg7qeUnUyULsmtLkleecNWpnnBmnVnu'
 
 app = FastAPI()
 
 @app.get("/")
 def home():
-    return {"status": "LibreOffice PDF to Word Converter is Running!"}
+    return {"status": "Cloud PDF to Word Converter is Running!"}
 
 def remove_file(path: str):
     try:
@@ -25,32 +28,28 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
     output_docx_path = f"/tmp/{session_id}.docx"
 
     try:
-        # حفظ ملف الـ PDF مؤقتاً
+        # قراءة محتوى الملف المرفوع وحفظه مؤقتاً
         contents = await file.read()
         with open(input_pdf_path, "wb") as f:
             f.write(contents)
 
-        # استدعاء محرك LibreOffice للتحويل المباشر
-        cmd = [
-            "libreoffice",
-            "--headless",
-            "--convert-to",
-            "docx",
-            "--outdir",
-            "/tmp",
-            input_pdf_path
-        ]
-        
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        # تنفيذ التحويل السحابي مع دعم قراءة النصوص والصور (OCR)
+        result = convertapi.convert(
+            'docx',
+            {
+                'File': input_pdf_path,
+                'EnableOcr': 'true'
+            },
+            from_format='pdf'
+        )
 
-        # التحقق من نجاح العملية ووجود الملف الناتج
-        if not os.path.exists(output_docx_path) or os.path.getsize(output_docx_path) == 0:
-            raise HTTPException(status_code=500, detail=f"Conversion failed: {result.stderr.decode()}")
+        # حفظ الملف الناتج محلياً
+        result.file.save(output_docx_path)
 
-        # تنظيف الـ PDF الأصلي
+        # حذف الـ PDF الأصلي فوراً
         remove_file(input_pdf_path)
 
-        # جدولة حذف ملف الـ docx بعد تحميله
+        # جدولة حذف ملف docx تلقائياً بعد إرساله للتطبيق لتوفير المساحة
         background_tasks.add_task(remove_file, output_docx_path)
 
         original_name = os.path.splitext(file.filename or "document")[0]
