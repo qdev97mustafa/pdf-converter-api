@@ -1,11 +1,13 @@
 import os
 import uuid
 import convertapi
+from typing import List
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTasks
 
-convertapi.api_credentials = 'dEg7qeUnUyULsmtLkleecNWpnnBmnVnu'
+# المفتاح السري الجديد للحساب
+convertapi.api_credentials = 'c7t6OHCnY6CpkJYuqkz9qVkfn8hms8m9'
 
 app = FastAPI()
 
@@ -69,7 +71,6 @@ async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFil
         with open(input_docx_path, "wb") as f:
             f.write(contents)
 
-        # تنفيذ التحويل العكسي من docx إلى pdf
         result = convertapi.convert(
             'pdf',
             {
@@ -92,5 +93,49 @@ async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFil
         )
     except Exception as e:
         remove_file(input_docx_path)
+        remove_file(output_pdf_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 3. تحويل الصور إلى PDF (Images to PDF API)
+@app.post("/convert-images-to-pdf")
+async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...)):
+    session_id = str(uuid.uuid4())
+    output_pdf_path = f"/tmp/{session_id}.pdf"
+    temp_files = []
+
+    try:
+        # حفظ جميع الصور المرسلة مؤقتاً
+        for idx, file in enumerate(files):
+            temp_path = f"/tmp/{session_id}_{idx}_{file.filename}"
+            contents = await file.read()
+            with open(temp_path, "wb") as f:
+                f.write(contents)
+            temp_files.append(temp_path)
+
+        # استدعاء أداة images to pdf
+        result = convertapi.convert(
+            'pdf',
+            {
+                'Files': temp_files
+            },
+            from_format='images'
+        )
+
+        saved_files = result.save_files(output_pdf_path)
+        actual_path = saved_files[0] if isinstance(saved_files, list) else output_pdf_path
+
+        for p in temp_files:
+            remove_file(p)
+
+        background_tasks.add_task(remove_file, actual_path)
+
+        return FileResponse(
+            path=actual_path,
+            filename=f"scanned_{session_id[:8]}.pdf",
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        for p in temp_files:
+            remove_file(p)
         remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
