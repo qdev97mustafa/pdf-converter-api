@@ -3,7 +3,7 @@ import uuid
 import convertapi
 from typing import List
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from starlette.background import BackgroundTasks
 
 # مفتاح الاعتماد للحساب
@@ -92,7 +92,7 @@ async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFil
         remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-# 3. دمج وتحويل الصور إلى ملف PDF
+# 3. تحويل ودمج الصور إلى PDF
 @app.post("/convert-images-to-pdf")
 async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...)):
     session_id = str(uuid.uuid4())
@@ -130,47 +130,4 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
         for p in temp_files:
             remove_file(p)
         remove_file(output_pdf_path)
-        raise HTTPException(status_code=500, detail=str(e))
-
-# 4. التعرف الضوئي واستخراج النصوص (OCR) بدعم اللغتين العربية والإنجليزية
-@app.post("/extract-text-ocr")
-async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    session_id = str(uuid.uuid4())
-    ext = os.path.splitext(file.filename or "image.jpg")[1].lower()
-    if not ext or ext not in ['.jpg', '.jpeg', '.png', '.webp']:
-        ext = '.jpg'
-
-    input_img_path = f"/tmp/{session_id}{ext}"
-    output_txt_path = f"/tmp/{session_id}.txt"
-
-    try:
-        contents = await file.read()
-        with open(input_img_path, "wb") as f:
-            f.write(contents)
-
-        from_fmt = 'jpg' if ext in ['.jpg', '.jpeg'] else 'png'
-
-        result = convertapi.convert(
-            'txt',
-            {
-                'File': input_img_path,
-                'OcrLanguage': 'ar,en',
-                'Preprocessing': 'true'
-            },
-            from_format=from_fmt
-        )
-
-        saved_files = result.save_files(output_txt_path)
-        actual_path = saved_files[0] if isinstance(saved_files, list) else output_txt_path
-
-        with open(actual_path, "r", encoding="utf-8", errors="ignore") as f:
-            extracted_text = f.read()
-
-        remove_file(input_img_path)
-        background_tasks.add_task(remove_file, actual_path)
-
-        return JSONResponse(content={"text": extracted_text.strip()})
-    except Exception as e:
-        remove_file(input_img_path)
-        remove_file(output_txt_path)
         raise HTTPException(status_code=500, detail=str(e))
