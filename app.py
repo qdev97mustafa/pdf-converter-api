@@ -20,6 +20,7 @@ def remove_file(path: str):
     except Exception:
         pass
 
+# 1. تحويل PDF إلى Word
 @app.post("/convert-pdf-to-docx")
 async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
@@ -31,7 +32,6 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
         with open(input_pdf_path, "wb") as f:
             f.write(contents)
 
-        # التحويل عبر ConvertAPI مع حفظ الملف الناتج مباشرة
         result = convertapi.convert(
             'docx',
             {
@@ -40,10 +40,7 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
             from_format='pdf'
         )
 
-        # حفظ الملف والتأكد من وجوده وحجمه
         saved_files = result.save_files(output_docx_path)
-        
-        # إذا حفظه كمسار مباشر أو داخل قائمة
         actual_path = saved_files[0] if isinstance(saved_files, list) else output_docx_path
 
         remove_file(input_pdf_path)
@@ -55,8 +52,45 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
             filename=f"{original_name}.docx",
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-
     except Exception as e:
         remove_file(input_pdf_path)
         remove_file(output_docx_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 2. تحويل Word إلى PDF
+@app.post("/convert-docx-to-pdf")
+async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    session_id = str(uuid.uuid4())
+    input_docx_path = f"/tmp/{session_id}.docx"
+    output_pdf_path = f"/tmp/{session_id}.pdf"
+
+    try:
+        contents = await file.read()
+        with open(input_docx_path, "wb") as f:
+            f.write(contents)
+
+        # تنفيذ التحويل العكسي من docx إلى pdf
+        result = convertapi.convert(
+            'pdf',
+            {
+                'File': input_docx_path
+            },
+            from_format='docx'
+        )
+
+        saved_files = result.save_files(output_pdf_path)
+        actual_path = saved_files[0] if isinstance(saved_files, list) else output_pdf_path
+
+        remove_file(input_docx_path)
+        background_tasks.add_task(remove_file, actual_path)
+
+        original_name = os.path.splitext(file.filename or "document")[0]
+        return FileResponse(
+            path=actual_path,
+            filename=f"{original_name}.pdf",
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        remove_file(input_docx_path)
+        remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
