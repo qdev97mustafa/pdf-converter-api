@@ -132,7 +132,7 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
         remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-# 4. التعرف الضوئي التلقائي واستخراج النصوص بدعم متعدد اللغات (OCR)
+# 4. التعرف الضوئي واستخراج النصوص (OCR) بدعم اللغتين العربية والإنجليزية
 @app.post("/extract-text-ocr")
 async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
@@ -154,8 +154,8 @@ async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile =
             'txt',
             {
                 'File': input_img_path,
-                'OcrLanguage': 'ar,en,fr,de,es,tr,fa,ru',
-                'PageSegmentationMode': 'autoOsd'
+                'OcrLanguage': 'ar,en',
+                'Preprocessing': 'true'
             },
             from_format=from_fmt
         )
