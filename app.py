@@ -3,10 +3,10 @@ import uuid
 import convertapi
 from typing import List
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTasks
 
-# المفتاح السري الجديد للحساب
+# مفتاح الاعتماد
 convertapi.api_credentials = 'c7t6OHCnY6CpkJYuqkz9qVkfn8hms8m9'
 
 app = FastAPI()
@@ -36,9 +36,7 @@ async def convert_pdf_to_docx(background_tasks: BackgroundTasks, file: UploadFil
 
         result = convertapi.convert(
             'docx',
-            {
-                'File': input_pdf_path
-            },
+            {'File': input_pdf_path},
             from_format='pdf'
         )
 
@@ -73,9 +71,7 @@ async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFil
 
         result = convertapi.convert(
             'pdf',
-            {
-                'File': input_docx_path
-            },
+            {'File': input_docx_path},
             from_format='docx'
         )
 
@@ -96,7 +92,7 @@ async def convert_docx_to_pdf(background_tasks: BackgroundTasks, file: UploadFil
         remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-# 3. تحويل الصور إلى PDF (Images to PDF API)
+# 3. دمج وتحويل الصور إلى ملف PDF
 @app.post("/convert-images-to-pdf")
 async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...)):
     session_id = str(uuid.uuid4())
@@ -104,7 +100,6 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
     temp_files = []
 
     try:
-        # حفظ جميع الصور المرسلة مؤقتاً
         for idx, file in enumerate(files):
             temp_path = f"/tmp/{session_id}_{idx}_{file.filename}"
             contents = await file.read()
@@ -112,12 +107,9 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
                 f.write(contents)
             temp_files.append(temp_path)
 
-        # استدعاء أداة images to pdf
         result = convertapi.convert(
             'pdf',
-            {
-                'Files': temp_files
-            },
+            {'Files': temp_files},
             from_format='images'
         )
 
@@ -138,4 +130,39 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
         for p in temp_files:
             remove_file(p)
         remove_file(output_pdf_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 4. التعرف الضوئي التلقائي واستخراج النصوص بأي لغة كانت من الصورة
+@app.post("/extract-text-ocr")
+async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    session_id = str(uuid.uuid4())
+    ext = os.path.splitext(file.filename or "image.jpg")[1]
+    input_img_path = f"/tmp/{session_id}{ext}"
+    output_txt_path = f"/tmp/{session_id}.txt"
+
+    try:
+        contents = await file.read()
+        with open(input_img_path, "wb") as f:
+            f.write(contents)
+
+        # استخراج النص بجميع اللغات عبر محرك ConvertAPI OCR
+        result = convertapi.convert(
+            'txt',
+            {'File': input_img_path},
+            from_format='images'
+        )
+
+        saved_files = result.save_files(output_txt_path)
+        actual_path = saved_files[0] if isinstance(saved_files, list) else output_txt_path
+
+        with open(actual_path, "r", encoding="utf-8", errors="ignore") as f:
+            extracted_text = f.read()
+
+        remove_file(input_img_path)
+        background_tasks.add_task(remove_file, actual_path)
+
+        return JSONResponse(content={"text": extracted_text.strip()})
+    except Exception as e:
+        remove_file(input_img_path)
+        remove_file(output_txt_path)
         raise HTTPException(status_code=500, detail=str(e))
