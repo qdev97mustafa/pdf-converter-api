@@ -6,6 +6,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTasks
 
+# مفتاح الاعتماد للحساب
 convertapi.api_credentials = 'c7t6OHCnY6CpkJYuqkz9qVkfn8hms8m9'
 
 app = FastAPI()
@@ -131,7 +132,7 @@ async def convert_images_to_pdf(background_tasks: BackgroundTasks, files: List[U
         remove_file(output_pdf_path)
         raise HTTPException(status_code=500, detail=str(e))
 
-# 4. استخراج النصوص (OCR) بدقة لجميع اللغات من الصورة
+# 4. التعرف الضوئي التلقائي واستخراج النصوص بدعم متعدد اللغات (OCR)
 @app.post("/extract-text-ocr")
 async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
@@ -151,7 +152,11 @@ async def extract_text_ocr(background_tasks: BackgroundTasks, file: UploadFile =
 
         result = convertapi.convert(
             'txt',
-            {'File': input_img_path},
+            {
+                'File': input_img_path,
+                'OcrLanguage': 'ar,en,fr,de,es,tr,fa,ru',
+                'PageSegmentationMode': 'autoOsd'
+            },
             from_format=from_fmt
         )
 
